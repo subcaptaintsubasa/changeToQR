@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QRコード生成ツール</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f9f9f9;
+        }
+        .container {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 90%;
+            max-width: 400px;
+        }
+        h1 {
+            margin-bottom: 16px;
+            font-size: 1.5rem;
+        }
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        input[type="text"] {
+            flex: 1;
+            min-width: 0;
+            padding: 8px;
+            font-size: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            padding: 8px 12px;
+            font-size: 1rem;
+            border: none;
+            background-color: #007bff;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        /* QRコード表示部分を中央寄せ */
+        #qrcode {
+            margin-top: 16px;
+            display: flex;
+            justify-content: center;
+        }
+        /* QRコードに白い縁取りを追加（表示用） */
+        #qrcode canvas {
+            border: 8px solid #ffffff;
+            border-radius: 8px;
+            background-color: #fff;
+        }
+        /* コピー用ボタン配置 */
+        #copy-btn {
+            margin-top: 12px;
+        }
+        /* フィードバックメッセージ */
+        #message {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 4px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        #message.show {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <!-- フィードバックメッセージ -->
+    <div id="message"></div>
+
+    <div class="container">
+        <h1>QRコード生成ツール</h1>
+        <div class="controls">
+            <input type="text" id="text-input" placeholder="テキストを入力してください">
+            <button id="paste-btn">貼り付け</button>
+        </div>
+        <div id="qrcode"></div>
+        <button id="copy-btn">コピー</button>
+    </div>
+
+    <!-- QRコード生成ライブラリ -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+    <script>
+        // QRCodeインスタンスを初期化
+        const qrElement = document.getElementById("qrcode");
+        const qr = new QRCode(qrElement, {
+            text: "",
+            width: 200,
+            height: 200,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+        });
+
+        const input = document.getElementById("text-input");
+        const pasteBtn = document.getElementById("paste-btn");
+        const copyBtn = document.getElementById("copy-btn");
+        const message = document.getElementById("message");
+
+        // フィードバックメッセージ表示
+        function showMessage(text) {
+            message.textContent = text;
+            message.classList.add("show");
+            setTimeout(() => {
+                message.classList.remove("show");
+            }, 1500);
+        }
+
+        // 入力に応じてリアルタイム更新
+        input.addEventListener("input", () => {
+            const value = input.value.trim();
+            qr.clear();
+            qr.makeCode(value);
+        });
+
+        // クリップボードから貼り付け
+        pasteBtn.addEventListener("click", async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                input.value = text;
+                input.dispatchEvent(new Event("input"));
+            } catch (err) {
+                showMessage("クリップボードの読み取りに失敗しました。");
+            }
+        });
+
+        // コピー機能: 白い縁取りを含めてクリップボードにコピー
+        async function copyQRCode() {
+            const canvas = qrElement.querySelector("canvas");
+            if (!canvas) {
+                showMessage("QRコードが生成されていません。");
+                return;
+            }
+            const border = 8;
+            const w = canvas.width;
+            const h = canvas.height;
+            const off = document.createElement("canvas");
+            off.width = w + border * 2;
+            off.height = h + border * 2;
+            const ctx = off.getContext("2d");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, off.width, off.height);
+            ctx.drawImage(canvas, border, border, w, h);
+            off.toBlob(async (blob) => {
+                try {
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ "image/png": blob })
+                    ]);
+                    showMessage("コピーしました！");
+                } catch (err) {
+                    console.error(err);
+                    showMessage("コピーに失敗しました。");
+                }
+            });
+        }
+
+        copyBtn.addEventListener("click", copyQRCode);
+    </script>
+</body>
+</html>
