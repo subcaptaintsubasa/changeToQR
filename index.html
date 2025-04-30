@@ -55,23 +55,19 @@
         button:hover {
             background-color: #0056b3;
         }
-        /* QRコード表示部分を中央寄せ */
         #qrcode {
             margin-top: 16px;
             display: flex;
             justify-content: center;
         }
-        /* QRコードに白い縁取りを追加（表示用） */
         #qrcode canvas {
             border: 8px solid #ffffff;
             border-radius: 8px;
             background-color: #fff;
         }
-        /* コピー用ボタン配置 */
         #copy-btn {
             margin-top: 12px;
         }
-        /* フィードバックメッセージ */
         #message {
             position: fixed;
             top: 20px;
@@ -89,17 +85,19 @@
         #message.show {
             opacity: 1;
         }
+        /* ドラッグオーバー時ハイライト */
+        .drop-hover {
+            box-shadow: 0 0 0 4px rgba(0,123,255,0.5);
+        }
     </style>
 </head>
 <body>
-    <!-- フィードバックメッセージ -->
     <div id="message"></div>
-
-    <div class="container">
+    <div class="container" id="container">
         <h1>QRコード生成ツール</h1>
         <div class="controls">
             <input type="text" id="text-input" placeholder="テキストを入力してください">
-            <button id="paste-btn">貼り付け</button>
+            <button id="paste-btn">貼り付け/読み取り</button>
         </div>
         <div id="qrcode"></div>
         <button id="copy-btn">コピー</button>
@@ -107,81 +105,89 @@
 
     <!-- QRコード生成ライブラリ -->
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+    <!-- QRコード読み取りライブラリ -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
     <script>
-        // QRCodeインスタンスを初期化
         const qrElement = document.getElementById("qrcode");
-        const qr = new QRCode(qrElement, {
-            text: "",
-            width: 200,
-            height: 200,
-            colorDark: "#000000",
-            colorLight: "#ffffff",
-            correctLevel: QRCode.CorrectLevel.H
-        });
-
+        const qr = new QRCode(qrElement, { text: "", width: 200, height: 200, colorDark: "#000", colorLight: "#fff", correctLevel: QRCode.CorrectLevel.H });
         const input = document.getElementById("text-input");
         const pasteBtn = document.getElementById("paste-btn");
         const copyBtn = document.getElementById("copy-btn");
         const message = document.getElementById("message");
+        const container = document.getElementById("container");
 
-        // フィードバックメッセージ表示
         function showMessage(text) {
             message.textContent = text;
             message.classList.add("show");
-            setTimeout(() => {
-                message.classList.remove("show");
-            }, 1500);
+            setTimeout(() => message.classList.remove("show"), 1500);
         }
 
-        // 入力に応じてリアルタイム更新
         input.addEventListener("input", () => {
-            const value = input.value.trim();
-            qr.clear();
-            qr.makeCode(value);
+            const v = input.value.trim(); qr.clear(); qr.makeCode(v);
         });
 
-        // クリップボードから貼り付け
+        // QR生成： 初期表示
+        qr.clear(); qr.makeCode("");
+
+        // 画像データからQRを読み取る
+        async function decodeImageData(blob) {
+            const img = await createImageBitmap(blob);
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width; canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img,0,0);
+            const data = ctx.getImageData(0,0,canvas.width,canvas.height);
+            const code = jsQR(data.data, data.width, data.height);
+            return code ? code.data : null;
+        }
+
+        // 貼り付け/読み取りボタン
         pasteBtn.addEventListener("click", async () => {
             try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    for (const type of item.types) {
+                        if (type.startsWith('image/')) {
+                            const blob = await item.getType(type);
+                            const text = await decodeImageData(blob);
+                            if (text) { input.value = text; input.dispatchEvent(new Event('input')); showMessage('QRを読み取りました'); return; }
+                        }
+                    }
+                }
+                // 画像でなければテキストとして読み込む
                 const text = await navigator.clipboard.readText();
-                input.value = text;
-                input.dispatchEvent(new Event("input"));
-            } catch (err) {
-                showMessage("クリップボードの読み取りに失敗しました。");
+                if (text) { input.value = text; input.dispatchEvent(new Event('input')); showMessage('クリップボードから貼り付けました'); }
+            } catch (e) {
+                showMessage('読み取りに失敗しました');
             }
         });
 
-        // コピー機能: 白い縁取りを含めてクリップボードにコピー
-        async function copyQRCode() {
-            const canvas = qrElement.querySelector("canvas");
-            if (!canvas) {
-                showMessage("QRコードが生成されていません。");
-                return;
+        // ドラッグ＆ドロップ
+        ['dragenter','dragover'].forEach(ev => container.addEventListener(ev, e=>{ e.preventDefault(); container.classList.add('drop-hover'); }));
+        ['dragleave','drop'].forEach(ev => container.addEventListener(ev, e=>{ e.preventDefault(); container.classList.remove('drop-hover'); }));
+        container.addEventListener('drop', async e => {
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const text = await decodeImageData(file);
+                if (text) { input.value = text; input.dispatchEvent(new Event('input')); showMessage('QRを読み取りました'); }
+                else showMessage('QRを認識できませんでした');
             }
-            const border = 8;
-            const w = canvas.width;
-            const h = canvas.height;
-            const off = document.createElement("canvas");
-            off.width = w + border * 2;
-            off.height = h + border * 2;
-            const ctx = off.getContext("2d");
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(0, 0, off.width, off.height);
-            ctx.drawImage(canvas, border, border, w, h);
-            off.toBlob(async (blob) => {
-                try {
-                    await navigator.clipboard.write([
-                        new ClipboardItem({ "image/png": blob })
-                    ]);
-                    showMessage("コピーしました！");
-                } catch (err) {
-                    console.error(err);
-                    showMessage("コピーに失敗しました。");
-                }
-            });
-        }
+        });
 
-        copyBtn.addEventListener("click", copyQRCode);
+        // コピー機能
+        copyBtn.addEventListener('click', async ()=>{
+            const canvas = qrElement.querySelector('canvas');
+            if (!canvas) { showMessage('QRがありません'); return; }
+            const b = 8, w=canvas.width, h=canvas.height;
+            const off = document.createElement('canvas'); off.width=w+2*b; off.height=h+2*b;
+            const ctx = off.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,off.width,off.height);
+            ctx.drawImage(canvas,b,b);
+            off.toBlob(async blob=>{
+                try{ await navigator.clipboard.write([ new ClipboardItem({'image/png':blob}) ]);
+                    showMessage('コピーしました');
+                } catch(e){ showMessage('コピー失敗'); }
+            });
+        });
     </script>
 </body>
 </html>
